@@ -8,6 +8,7 @@
   const BROKERS = ['wss://broker.emqx.io:8084/mqtt', 'wss://broker.hivemq.com:8884/mqtt', 'wss://test.mosquitto.org:8081/mqtt'];
   const TOPIC = 'echodark-nhs/v1/';
   const MAXP = 8;
+  const PUB_GAP = 115; // 送信の最短間隔(ms)。毎秒約9回 = ブローカーの上限(約10回/秒)の内側
   const MODES = [
     { key: 'ffa', n: '個人戦', d: '全員が敵。1ライフで、最後まで生き残った人がラウンド獲得。3ラウンド先取で優勝。' },
     { key: 'team', n: 'チーム戦', d: '赤チーム vs 青チーム(入った順で自動で半分に分ける)。相手チームを全滅させたらラウンド獲得。3ラウンド先取。味方は撃てない。' },
@@ -87,16 +88,24 @@
     };
     cl.on('message', onMsg);
     cl.subscribe(base + '+', { qos: 0 });
-    let lastPub = 0;
-    const publish = () => {
-      if (!cl.connected) return;
+    // 公開ブローカーは1人あたり毎秒約10回までしか通さない(超えたぶんは捨てられて0.5秒ほど途切れる)。
+    // なので送信は必ずここを通して、前回から PUB_GAP ms たっていなければ待ってから最新の状態を1回だけ送る
+    let lastPub = 0, pending = null;
+    const doPublish = () => {
+      pending = null;
+      if (closed || !cl.connected) return;
       lastPub = Date.now();
       try { cl.publish(base + myId, JSON.stringify(mine), { qos: 0, retain: false }); } catch (e) { }
+    };
+    const publish = () => {
+      const wait = lastPub + PUB_GAP - Date.now();
+      if (wait <= 0) doPublish();
+      else if (!pending) pending = setTimeout(doPublish, wait);
     };
     const loop = setInterval(() => {
       if (closed) return;
       // 試合中は Unity からの送信(flush)で流れるので、しばらく送っていないときだけ送る
-      if (Date.now() - lastPub > 90) publish();
+      if (Date.now() - lastPub > 100) publish();
       const now = Date.now(); let ch = false;
       for (const [id, o] of table) if (now - o.at > 6000) { table.delete(id); ch = true; }
       if (ch) rebuild();
