@@ -1,0 +1,70 @@
+:root {
+  --bg: #000;
+  --fg: #9fe6ff;
+  --dim: #5f8fa3;
+  --accent: #4fd2ff;
+  --warn: #c58cff;
+  --panel: rgba(4, 14, 20, 0.92);
+  --line: rgba(79, 210, 255, 0.35);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); overflow: hidden; }
+body { font-family: "Hiragino Sans", "Noto Sans JP", "Yu Gothic", system-ui, sans-serif; color: var(--fg); }
+#unity-canvas { position: fixed; inset: 0; width: 100vw; height: 100vh; background: #000; outline: none; }
+.hidden { display: none !important; }
+
+/* パネル(メニュー・ロビー) */
+.panel {
+  position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: min(520px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow: auto;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 24px;
+  display: flex; flex-direction: column; gap: 12px;
+}
+h1 { margin: 0; font-size: 44px; letter-spacing: 0.18em; text-align: center; color: var(--accent); text-shadow: 0 0 18px rgba(79, 210, 255, 0.6); }
+h2 { margin: 0; font-size: 22px; }
+h3 { margin: 6px 0 0; font-size: 15px; color: var(--dim); }
+.tag { margin: 0 0 6px; text-align: center; color: var(--dim); font-size: 14px; }
+label { display: flex; gap: 10px; align-items: center; font-size: 14px; }
+input {
+  flex: 1; min-width: 0; background: #031018; color: var(--fg); border: 1px solid var(--line);
+  border-radius: 6px; padding: 9px 10px; font: inherit; font-size: 14px;
+}
+.row { display: flex; gap: 8px; flex-wrap: wrap; }
+.btn {
+  background: #06202c; color: var(--fg); border: 1px solid var(--line); border-radius: 6px;
+  padding: 11px 14px; font: inherit; font-size: 15px; cursor: pointer;
+}
+.btn:hover:not(:disabled) { border-color: var(--accent); }
+.btn:disabled { opacity: 0.4; cursor: default; }
+.btn.primary { background: #0b3a4f; border-color: var(--accent); font-weight: 600; }
+.btn.small { padding: 7px 10px; font-size: 13px; }
+.btn.sel { background: #0b3a4f; border-color: var(--accent); color: #fff; }
+#modes .btn { flex: 1; }
+.desc { margin: 0; font-size: 13px; line-height: 1.6; color: var(--dim); min-height: 3.2em; }
+.stat { margin: 0; font-size: 13px; color: var(--dim); min-height: 1.2em; }
+#players { display: flex; flex-direction: column; gap: 4px; font-size: 15px; }
+#players div { padding: 6px 10px; border: 1px solid rgba(79, 210, 255, 0.15); border-radius: 6px; }
+
+/* 試合中の表示 */
+#hud { position: fixed; inset: 0; pointer-events: none; font-size: 16px; text-shadow: 0 0 6px #000; }
+#cross { position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; margin: -2px 0 0 -2px; background: rgba(255, 255, 255, 0.7); border-radius: 50%; }
+#tl { position: absolute; left: 16px; top: 12px; line-height: 1.5; white-space: pre; }
+#tr { position: absolute; right: 16px; top: 12px; text-align: right; line-height: 1.6; }
+#tr1 { font-size: 22px; }
+#tr2 { color: var(--warn); }
+#center { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-60%); text-align: center; font-size: 40px; line-height: 1.3; white-space: pre-line; }
+#bl { position: absolute; left: 16px; bottom: 12px; right: 16px; font-size: 14px; color: var(--dim); line-height: 1.6; }
+#lockhint { position: absolute; left: 50%; top: 62%; transform: translateX(-50%); font-size: 15px; color: var(--fg); background: rgba(0, 0, 0, 0.6); padding: 6px 12px; border-radius: 6px; }
+#exitGame { position: absolute; right: 16px; bottom: 60px; pointer-events: auto; }
+
+/* 読み込み */
+#loading { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: 280px; text-align: center; }
+#loading .bar { height: 6px; border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }
+#fill { height: 100%; width: 0; background: var(--accent); }
+#ltext { margin-top: 10px; font-size: 14px; color: var(--dim); }
+
+@media (max-width: 600px) {
+  h1 { font-size: 32px; }
+  #center { font-size: 28px; }
+  #bl { font-size: 12px; }
+}

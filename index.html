@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ECHO DARK</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <canvas id="unity-canvas" tabindex="-1"></canvas>
+
+  <!-- 試合中の表示(Unity から EchoUI.hud で更新) -->
+  <div id="hud" class="hidden">
+    <div id="cross"></div>
+    <div id="tl"></div>
+    <div id="tr"><div id="tr1"></div><div id="tr2"></div><div id="tr3"></div></div>
+    <div id="center"></div>
+    <div id="bl"><div id="sub"></div><div id="bottom"></div></div>
+    <div id="lockhint">画面をクリックで操作開始 / Esc でマウスを解放</div>
+    <button id="exitGame" class="btn small">退出</button>
+  </div>
+
+  <!-- タイトル -->
+  <div id="menu" class="panel hidden">
+    <h1>ECHO DARK</h1>
+    <p class="tag">真っ暗な世界で、音の波紋だけが輪郭を照らす。</p>
+    <label>名前 <input id="name" maxlength="12"></label>
+    <button id="solo" class="btn">ソロ練習(ボットあり)</button>
+    <button id="create" class="btn primary">部屋を作る(オンライン対戦)</button>
+    <div class="row">
+      <input id="joinCode" placeholder="部屋コード" maxlength="8">
+      <button id="join" class="btn">参加する</button>
+    </div>
+    <p id="menuStat" class="stat"></p>
+  </div>
+
+  <!-- ロビー -->
+  <div id="lobby" class="panel hidden">
+    <h2>部屋 <span id="lcode"></span></h2>
+    <div class="row">
+      <input id="invite" readonly>
+      <button id="copy" class="btn small">招待URLをコピー</button>
+    </div>
+    <div id="players"></div>
+    <h3>モード</h3>
+    <div id="modes" class="row"></div>
+    <p id="modeDesc" class="desc"></p>
+    <button id="start" class="btn primary">スタート</button>
+    <p id="lobbyStat" class="stat"></p>
+    <button id="leave" class="btn small">部屋を出る</button>
+  </div>
+
+  <div id="loading"><div class="bar"><div id="fill"></div></div><div id="ltext">読み込み中…</div></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js"></script>
+  <script src="echo.js"></script>
+  <script>
+    var buildUrl = "Build";
+    var config = {
+      arguments: [],
+      dataUrl: buildUrl + "/web.data",
+      frameworkUrl: buildUrl + "/web.framework.js",
+      codeUrl: buildUrl + "/web.wasm",
+      streamingAssetsUrl: "StreamingAssets",
+      companyName: "DefaultCompany",
+      productName: "ECHO DARK",
+      productVersion: "1.0"
+    };
+    var script = document.createElement("script");
+    script.src = buildUrl + "/web.loader.js";
+    script.onload = function () {
+      createUnityInstance(document.querySelector("#unity-canvas"), config, function (p) { EchoUI.progress(p); })
+        .then(function (inst) { EchoUI.ready(inst); })
+        .catch(function (e) { EchoUI.fail(e); });
+    };
+    document.body.appendChild(script);
+  </script>
+</body>
+</html>
