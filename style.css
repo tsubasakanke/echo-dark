@@ -42,6 +42,11 @@ input {
 #modes .btn { flex: 1; }
 .desc { margin: 0; font-size: 13px; line-height: 1.6; color: var(--dim); min-height: 3.2em; }
 .stat { margin: 0; font-size: 13px; color: var(--dim); min-height: 1.2em; }
+#npc { display: flex; flex-direction: column; gap: 6px; }
+.npcrow { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+.npcrow span { flex: 1; }
+.npcrow b { min-width: 1.6em; text-align: center; font-size: 16px; }
+.npcrow input[type=checkbox] { flex: 0 0 auto; width: 18px; height: 18px; }
 #players { display: flex; flex-direction: column; gap: 4px; font-size: 15px; }
 #players div { padding: 6px 10px; border: 1px solid rgba(79, 210, 255, 0.15); border-radius: 6px; }
 

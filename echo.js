@@ -7,13 +7,25 @@
 (function () {
   const BROKERS = ['wss://broker.emqx.io:8084/mqtt', 'wss://broker.hivemq.com:8884/mqtt', 'wss://test.mosquitto.org:8081/mqtt'];
   const TOPIC = 'echodark-nhs/v1/';
-  const MAXP = 8;
+  const MAXP = 8;        // 人間の上限
+  const MAX_TOTAL = 12;  // 人間+NPC の上限
   const PUB_GAP = 115; // 送信の最短間隔(ms)。毎秒約9回 = ブローカーの上限(約10回/秒)の内側
   const MODES = [
-    { key: 'ffa', n: '個人戦', d: '全員が敵。1ライフで、最後まで生き残った人がラウンド獲得。3ラウンド先取で優勝。' },
-    { key: 'team', n: 'チーム戦', d: '赤チーム vs 青チーム(入った順で自動で半分に分ける)。相手チームを全滅させたらラウンド獲得。3ラウンド先取。味方は撃てない。' },
+    { key: 'ffa', n: '個人戦', d: '全員が敵。1ライフで、最後まで生き残った人がラウンド獲得。3ラウンド先取で優勝。NPCも入れられる。' },
+    { key: 'team', n: 'チーム戦', d: '赤チーム vs 青チーム。人間は入った順で半分に分ける(「人間は全員赤」にすると NPC チームと対戦)。相手チームを全滅させたらラウンド獲得。3ラウンド先取。味方は撃てない。' },
     { key: 'oni', n: '鬼ごっこ', d: '鬼だけが銃を持っている。逃げる側は銃なしで、物陰に隠れて逃げ切れ。鬼は5秒遅れてスタート。ラウンドごとに鬼が交代(5人以上なら鬼2人)。つかまえた数+逃げ切った数のポイントで優勝を決める。' }
   ];
+
+  // マウス固定(pointer lock)の要求はクリック直後でないと断られる。断られてもクリックすれば固定できるので問題ないが、
+  // Unity の読み込み処理はこれを「重大なエラー」扱いして警告ダイアログを出してしまう。
+  // このファイルは Unity より先に読み込まれるので、ここで先に受け取って止める
+  window.addEventListener('unhandledrejection', e => {
+    const r = e.reason, msg = String((r && (r.message || r.name)) || r);
+    if (/pointer ?lock/i.test(msg) || (r && /^(NotAllowedError|WrongDocumentError|SecurityError)$/.test(r.name) && /lock/i.test(msg))) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    }
+  });
 
   const Q = new URLSearchParams(location.search);
   const $ = s => document.querySelector(s);
@@ -27,8 +39,30 @@
     unity: null, api: null, room: null, code: '', me: null, jt: 0,
     name: (Q.get('name') || store.get('echodark-name') || ('Player' + Math.floor(Math.random() * 900 + 100))).slice(0, 12),
     mode: 0, view: 'loading', inGame: false, lastGo: 0, go: null, game: null, roster: null,
+    // NPC の設定(リーダーが決める): nf = 個人戦のNPC数、nr/nb = 赤/青チームのNPC数、ar = 人間を全員赤チームに
+    cfg: { nf: +(Q.get('nf') || 0), nr: +(Q.get('nr') || 0), nb: +(Q.get('nb') || 0), ar: Q.get('ar') === '1' ? 1 : 0 },
     auto: Q.get('auto') === '1', autostart: Q.get('autostart'), minp: +(Q.get('minp') || 2), fast: Q.get('fast') === '1', autoStarted: false
   };
+
+  // 今の設定で、チームごとの人数(人間+NPC)
+  function teamCounts(humans) {
+    const c = S.cfg;
+    if (MODES[S.mode].key === 'ffa') return { total: humans + c.nf };
+    if (MODES[S.mode].key === 'oni') return { total: humans };
+    const red = (c.ar ? humans : Math.ceil(humans / 2)) + c.nr;
+    const blue = (c.ar ? 0 : Math.floor(humans / 2)) + c.nb;
+    return { total: red + blue, red, blue };
+  }
+
+  // スタートできるか(できないなら理由)
+  function startProblem(humans) {
+    const k = teamCounts(humans), key = MODES[S.mode].key;
+    if (k.total > MAX_TOTAL) return 'NPCを入れすぎ(人間+NPCで' + MAX_TOTAL + '人まで)';
+    if (key === 'oni' && humans < 2) return '鬼ごっこは2人以上(NPCなし)';
+    if (key === 'ffa' && k.total < 2) return 'ひとりならNPCを入れてね';
+    if (key === 'team' && (k.red < 1 || k.blue < 1)) return '両チームに1人以上必要(NPCを入れてね)';
+    return '';
+  }
 
   // ================= 部屋の通信 =================
 
@@ -192,7 +226,7 @@
 
   function buildPresence() {
     const pres = { v: 1, rm: S.code, n: S.name, jt: S.jt, st: S.inGame ? 'g' : 'l' };
-    if (isLeader()) { pres.md = S.mode; if (S.go) pres.go = S.go; }
+    if (isLeader()) { pres.md = S.mode; pres.cfg = S.cfg; if (S.go) pres.go = S.go; }
     if (S.inGame && S.game) pres.g = S.game;
     return pres;
   }
@@ -227,6 +261,7 @@
       const L = peers.find(p => p.peer === leaderId());
       if (L && !L.isMe) {
         S.mode = L.presence.md | 0;
+        if (L.presence.cfg) S.cfg = L.presence.cfg;
         const go = L.presence.go;
         // リーダーの開始合図(自分が名簿に入っていて、まだ始めていないもの)
         if (go && go.t !== S.lastGo && Array.isArray(go.roster) && go.roster.some(r => r.id === S.me)) startGame(go);
@@ -243,15 +278,20 @@
 
   function leaderStart() {
     const roster = members().map(p => ({ id: p.peer, n: p.isMe ? S.name : String(p.presence.n || '?').slice(0, 12) }));
-    if (roster.length < 2) return;
-    S.go = { t: Date.now(), mode: S.mode, roster: roster, fast: S.fast ? 1 : 0 };
+    if (startProblem(roster.length)) return;
+    // seed = マップの種(全員が同じランダムマップを作る)
+    S.go = { t: Date.now(), mode: S.mode, roster: roster, fast: S.fast ? 1 : 0, seed: Math.floor(Math.random() * 1e6) + 1, cfg: Object.assign({}, S.cfg) };
     startGame(S.go);
   }
 
   function startGame(go) {
     S.lastGo = go.t; S.inGame = true; S.roster = go.roster; S.game = null;
     show('game');
-    sendUnity('Net', 'StartMatch', JSON.stringify({ me: S.me, mode: go.mode | 0, roster: go.roster, auto: S.auto ? 1 : 0, fast: go.fast | 0 }));
+    const c = go.cfg || {};
+    sendUnity('Net', 'StartMatch', JSON.stringify({
+      me: S.me, mode: go.mode | 0, roster: go.roster, auto: S.auto ? 1 : 0, fast: go.fast | 0, seed: go.seed | 0,
+      nf: c.nf | 0, nr: c.nr | 0, nb: c.nb | 0, ar: c.ar | 0
+    }));
   }
 
   function sendUnity(obj, method, arg) {
@@ -291,15 +331,37 @@
     $('#modes').innerHTML = MODES.map((m, i) =>
       '<button class="btn' + (i === S.mode ? ' sel' : '') + '" data-mode="' + i + '"' + (amLeader ? '' : ' disabled') + '>' + m.n + '</button>').join('');
     $('#modeDesc').textContent = MODES[S.mode].d;
+    renderNpc(amLeader, peers.length);
 
     const leaderInGame = peers.some(p => p.peer === lead && !p.isMe && p.presence.st === 'g');
+    const problem = startProblem(peers.length);
     $('#start').classList.toggle('hidden', !amLeader);
-    $('#start').disabled = peers.length < 2;
+    $('#start').disabled = !!problem;
     let msg = '';
     if (leaderInGame) msg = '試合中… 終わったら次の試合に参加できる';
-    else if (amLeader) msg = peers.length < 2 ? '2人以上でスタートできる。招待URLを友達に送ろう' : 'そろったらスタート';
+    else if (amLeader) msg = problem || 'そろったらスタート(招待URLで友達も呼べる)';
     else msg = 'リーダー(👑)がスタートするのを待っています';
     $('#lobbyStat').textContent = msg;
+  }
+
+  // NPC の設定欄(リーダーだけ操作できる。鬼ごっこは NPC なし)
+  function renderNpc(amLeader, humans) {
+    const key = MODES[S.mode].key, c = S.cfg, dis = amLeader ? '' : ' disabled';
+    const counter = (field, label) =>
+      '<div class="npcrow"><span>' + label + '</span>' +
+      '<button class="btn small" data-npc="' + field + '" data-d="-1"' + dis + '>−</button>' +
+      '<b>' + (c[field] | 0) + '</b>' +
+      '<button class="btn small" data-npc="' + field + '" data-d="1"' + dis + '>+</button></div>';
+    let html = '';
+    if (key === 'ffa') html = counter('nf', 'NPC');
+    else if (key === 'team') {
+      const k = teamCounts(humans);
+      html = counter('nr', '赤チームのNPC') + counter('nb', '青チームのNPC') +
+        '<label class="npcrow"><input type="checkbox" data-ar' + (c.ar ? ' checked' : '') + dis + '> 人間は全員赤チーム(NPCチームと対戦)</label>' +
+        '<div class="desc">赤 ' + k.red + '人 / 青 ' + k.blue + '人</div>';
+    }
+    else html = '<div class="desc">鬼ごっこは NPC なし</div>';
+    if ($('#npc').innerHTML !== html) $('#npc').innerHTML = html;
   }
   setInterval(renderLobby, 300);
 
@@ -332,6 +394,20 @@
     $('#modes').addEventListener('click', e => {
       const b = e.target.closest('[data-mode]'); if (!b || !isLeader()) return;
       S.mode = +b.dataset.mode; renderLobby();
+    });
+    $('#npc').addEventListener('click', e => {
+      if (!isLeader()) return;
+      const b = e.target.closest('[data-npc]');
+      if (b) {
+        const f = b.dataset.npc, next = Math.max(0, (S.cfg[f] | 0) + (+b.dataset.d));
+        const before = S.cfg[f]; S.cfg[f] = next;
+        if (teamCounts(members().length).total > MAX_TOTAL) S.cfg[f] = before; // 12人を超える分は増やさない
+        renderLobby();
+      }
+    });
+    $('#npc').addEventListener('change', e => {
+      if (!isLeader() || !e.target.matches('[data-ar]')) return;
+      S.cfg.ar = e.target.checked ? 1 : 0; renderLobby();
     });
     $('#copy').onclick = async () => {
       const v = $('#invite').value;
