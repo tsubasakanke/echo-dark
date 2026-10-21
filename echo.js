@@ -83,25 +83,34 @@
       let pr; try { pr = JSON.parse(payload.toString()); } catch (e) { return; }
       if (!pr || typeof pr !== 'object' || Array.isArray(pr)) return;
       table.set(id, { presence: pr, at: Date.now() }); rebuild();
+      if (room.onUpdate) room.onUpdate();
     };
     cl.on('message', onMsg);
     cl.subscribe(base + '+', { qos: 0 });
+    let lastPub = 0;
+    const publish = () => {
+      if (!cl.connected) return;
+      lastPub = Date.now();
+      try { cl.publish(base + myId, JSON.stringify(mine), { qos: 0, retain: false }); } catch (e) { }
+    };
     const loop = setInterval(() => {
       if (closed) return;
-      if (cl.connected) try { cl.publish(base + myId, JSON.stringify(mine), { qos: 0, retain: false }); } catch (e) { }
+      // 試合中は Unity からの送信(flush)で流れるので、しばらく送っていないときだけ送る
+      if (Date.now() - lastPub > 90) publish();
       const now = Date.now(); let ch = false;
       for (const [id, o] of table) if (now - o.at > 6000) { table.delete(id); ch = true; }
       if (ch) rebuild();
     }, 100);
     rebuild();
-    return {
-      me: myId, set: p => { mine = p; rebuild(); }, peers: () => snap, connected: () => cl.connected,
+    const room = {
+      me: myId, set: p => { mine = p; rebuild(); }, flush: () => { if (!closed) publish(); }, peers: () => snap, connected: () => cl.connected, onUpdate: null,
       leave: () => {
         if (closed) return; closed = true; clearInterval(loop);
         try { cl.publish(base + myId, '', { qos: 0 }); cl.unsubscribe(base + '+'); } catch (e) { }
         cl.removeListener('message', onMsg);
       }
     };
+    return room;
   }
 
   function mockRoom(name) {
@@ -113,15 +122,25 @@
       for (const [id, o] of table) arr.push({ peer: id, isMe: false, presence: o.presence, at: o.at });
       snap = arr;
     };
-    ch.onmessage = e => { const { id, p } = e.data || {}; if (!id || id === myId) return; if (!p) table.delete(id); else table.set(id, { presence: p, at: Date.now() }); rebuild(); };
+    ch.onmessage = e => {
+      const { id, p } = e.data || {}; if (!id || id === myId) return;
+      if (!p) table.delete(id); else table.set(id, { presence: p, at: Date.now() });
+      rebuild(); if (room.onUpdate) room.onUpdate();
+    };
+    let lastPub = 0;
+    const publish = () => { lastPub = Date.now(); ch.postMessage({ id: myId, p: mine }); };
     const loop = setInterval(() => {
       if (closed) return;
-      ch.postMessage({ id: myId, p: mine });
+      if (Date.now() - lastPub > 90) publish();
       const now = Date.now(); for (const [id, o] of table) if (now - o.at > 4000) table.delete(id);
       rebuild();
     }, 100);
     rebuild();
-    return { me: myId, set: p => { mine = p; rebuild(); }, peers: () => snap, connected: () => true, leave: () => { closed = true; clearInterval(loop); ch.postMessage({ id: myId, p: null }); ch.close(); } };
+    const room = {
+      me: myId, set: p => { mine = p; rebuild(); }, flush: () => { if (!closed) publish(); }, peers: () => snap, connected: () => true, onUpdate: null,
+      leave: () => { closed = true; clearInterval(loop); ch.postMessage({ id: myId, p: null }); ch.close(); }
+    };
+    return room;
   }
 
   // 部屋のメンバー(入った順に最大8人)
@@ -145,6 +164,7 @@
     if (!api) { status('通信ライブラリを読み込めなかった。ページを再読み込みしてね'); return; }
     try { S.room = await api.join(code); }
     catch (e) { status('リレーサーバーに接続できなかった。少し待ってもう一度試してね'); return; }
+    S.room.onUpdate = scheduleForward;
     S.code = code; S.me = S.room.me; S.jt = Date.now(); S.lastGo = 0; S.go = null; S.autoStarted = false;
     const url = new URL(location.href); url.searchParams.set('room', code); history.replaceState(null, '', url);
     show('lobby');
@@ -161,13 +181,37 @@
     show('menu');
   }
 
-  // 0.1秒ごと: 自分の状態を配って、試合中なら全員の状態を Unity に渡す
-  setInterval(() => {
-    if (!S.room) return;
+  function buildPresence() {
     const pres = { v: 1, rm: S.code, n: S.name, jt: S.jt, st: S.inGame ? 'g' : 'l' };
     if (isLeader()) { pres.md = S.mode; if (S.go) pres.go = S.go; }
     if (S.inGame && S.game) pres.g = S.game;
-    S.room.set(pres);
+    return pres;
+  }
+
+  // 試合中: 誰かの状態が届いたら、次の描画フレームでまとめて Unity に渡す(0.1秒待たない)
+  let forwardQueued = false;
+  function scheduleForward() {
+    if (!S.inGame || forwardQueued) return;
+    forwardQueued = true;
+    requestAnimationFrame(() => { forwardQueued = false; forwardToUnity(); });
+  }
+
+  function forwardToUnity() {
+    if (!S.room || !S.inGame) return;
+    const peers = members();
+    const inRoster = new Set(S.roster.map(r => r.id));
+    const now = Date.now();
+    const list = peers
+      .filter(p => !p.isMe && inRoster.has(p.peer) && p.presence.st === 'g' && p.presence.g)
+      .map(p => Object.assign({ id: p.peer, n: p.presence.n, age: Math.min(1, (now - p.at) / 1000) }, p.presence.g));
+    const present = peers.filter(p => inRoster.has(p.peer) && (p.isMe || p.presence.st === 'g')).map(p => p.peer).sort();
+    sendUnity('Net', 'OnPeers', JSON.stringify({ me: S.me, leader: present[0] || S.me, peers: list }));
+  }
+
+  // 0.1秒ごと: ロビーの状態を配る。試合中は Unity から届いた時点ですぐ送るので、ここは予備
+  setInterval(() => {
+    if (!S.room) return;
+    S.room.set(buildPresence());
 
     const peers = members();
     if (!S.inGame) {
@@ -185,14 +229,7 @@
       }
       return;
     }
-
-    const inRoster = new Set(S.roster.map(r => r.id));
-    const now = Date.now();
-    const list = peers
-      .filter(p => !p.isMe && inRoster.has(p.peer) && p.presence.st === 'g' && p.presence.g)
-      .map(p => Object.assign({ id: p.peer, n: p.presence.n, age: Math.min(1, (now - p.at) / 1000) }, p.presence.g));
-    const present = peers.filter(p => inRoster.has(p.peer) && (p.isMe || p.presence.st === 'g')).map(p => p.peer).sort();
-    sendUnity('Net', 'OnPeers', JSON.stringify({ me: S.me, leader: present[0] || S.me, peers: list }));
+    forwardToUnity();
   }, 100);
 
   function leaderStart() {
@@ -304,7 +341,11 @@
   // ================= Unity から呼ばれる =================
 
   window.EchoNet = {
-    fromUnity(json) { try { S.game = JSON.parse(json); } catch (e) { } }
+    // Unity が自分の状態を出した瞬間に中継へ流す(0.1秒待たない)
+    fromUnity(json) {
+      try { S.game = JSON.parse(json); } catch (e) { return; }
+      if (S.room && S.inGame) { S.room.set(buildPresence()); S.room.flush(); }
+    }
   };
 
   window.EchoUI = {
