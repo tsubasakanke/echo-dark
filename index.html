@@ -12,6 +12,11 @@
   <!-- 試合中の表示(Unity から EchoUI.hud で更新) -->
   <div id="hud" class="hidden">
     <div id="cross"></div>
+    <div id="hitmark"></div>
+    <div id="dmg"></div>
+    <div id="feed"></div>
+    <div id="pop"></div>
+    <div id="br"><div id="hpbox"><span id="hpnum"></span><div id="hpbar"><div id="hpfill"></div></div></div><div id="ammo"></div><div id="skills"></div></div>
     <div id="tl"></div>
     <div id="tr"><div id="tr1"></div><div id="tr2"></div><div id="tr3"></div></div>
     <div id="center"></div>
@@ -25,6 +30,7 @@
     <h1>ECHO DARK</h1>
     <p class="tag">真っ暗な世界で、音の波紋だけが輪郭を照らす。</p>
     <label>名前 <input id="name" maxlength="12"></label>
+    <div class="asm"></div>
     <button id="solo" class="btn">ソロ練習(NPC3体と個人戦)</button>
     <button id="create" class="btn primary">部屋を作る(オンライン対戦)</button>
     <div class="row">
@@ -42,6 +48,8 @@
       <button id="copy" class="btn small">招待URLをコピー</button>
     </div>
     <div id="players"></div>
+    <div id="teampick" class="row"></div>
+    <div class="asm"></div>
     <h3>モード</h3>
     <div id="modes" class="row"></div>
     <p id="modeDesc" class="desc"></p>

@@ -73,3 +73,34 @@ input {
   #center { font-size: 28px; }
   #bl { font-size: 12px; }
 }
+
+/* アセンブル */
+.asm { display: flex; flex-direction: column; gap: 6px; border: 1px solid rgba(79, 210, 255, 0.2); border-radius: 8px; padding: 10px; }
+.asm h3 { margin: 0; }
+.asm .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 6px; }
+.asm .btn { text-align: left; padding: 8px 10px; font-size: 13px; line-height: 1.4; }
+.asm .btn small { display: block; color: var(--dim); font-size: 11px; }
+.asm .btn.sel small { color: #bfeaff; }
+#teampick .btn { flex: 1; }
+#teampick .btn.red.sel { background: #4a1414; border-color: #ff6b5e; }
+#teampick .btn.blue.sel { background: #0b2c4f; border-color: #4fa6ff; }
+
+/* 試合中の追加表示 */
+#br { position: absolute; right: 16px; bottom: 96px; text-align: right; display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
+#hpbox { display: flex; align-items: center; gap: 8px; font-size: 20px; }
+#hpbar { width: 160px; height: 8px; border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
+#hpfill { height: 100%; width: 100%; background: var(--accent); transition: width 0.15s; }
+#hpfill.low { background: #ff5a4e; }
+#ammo { font-size: 16px; }
+#skills { font-size: 14px; color: var(--dim); white-space: pre; }
+#feed { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); text-align: center; font-size: 13px; line-height: 1.6; white-space: pre; color: #d8f4ff; }
+#pop { position: absolute; left: 0; right: 0; top: 30%; text-align: center; font-size: 34px; font-weight: 700; color: #ffd27a; text-shadow: 0 0 16px rgba(255, 160, 60, 0.8); opacity: 0; }
+#pop.go { animation: pop 1.3s ease-out; }
+@keyframes pop { 0% { opacity: 0; transform: scale(1.6); } 12% { opacity: 1; transform: scale(1); } 75% { opacity: 1; } 100% { opacity: 0; transform: translateY(-14px); } }
+#hitmark { position: absolute; left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; opacity: 0;
+  background: linear-gradient(45deg, transparent 45%, #fff 45%, #fff 55%, transparent 55%), linear-gradient(-45deg, transparent 45%, #fff 45%, #fff 55%, transparent 55%); }
+#hitmark.go { animation: hit 0.22s ease-out; }
+@keyframes hit { 0% { opacity: 1; transform: scale(1.3); } 100% { opacity: 0; transform: scale(1); } }
+#dmg { position: absolute; inset: 0; opacity: 0; background: radial-gradient(ellipse at center, transparent 55%, rgba(255, 30, 20, 0.55) 100%); }
+#dmg.go { animation: dmg 0.5s ease-out; }
+@keyframes dmg { 0% { opacity: 1; } 100% { opacity: 0; } }

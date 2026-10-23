@@ -27,6 +27,21 @@
     }
   });
 
+  // アセンブル(C# の Weapons.cs と同じ順番)
+  const WEAPONS = [
+    { n: 'P90', d: '連射が速い・弾50発', st: '威力22 / 銃声 中' },
+    { n: 'アサルトライフル', d: 'バランス型・遠くも当たる', st: '威力30 / 銃声 やや大' },
+    { n: 'ショットガン', d: '近距離で8発ばらまく', st: '威力15×8 / 銃声 やや大' },
+    { n: 'スナイパー', d: '1発で倒せる。ズーム(右クリック)しないとブレる', st: '威力100 / 銃声 超大(全体にバレる)' },
+    { n: 'サプレッサー拳銃', d: '銃声がとても小さい。隠密向き', st: '威力34 / 銃声 極小' }
+  ];
+  const SKILLS = [
+    { n: 'ハイジャンプ', d: '高台や塔に飛び乗れる', cd: 8 },
+    { n: 'スキャン', d: '35m以内の敵が2.5秒、壁越しに光る', cd: 18 },
+    { n: 'ダッシュ', d: '1.2秒、足音なしで速く動く', cd: 10 },
+    { n: 'デコイ', d: '狙った場所でニセの銃声を鳴らす', cd: 14 }
+  ];
+
   const Q = new URLSearchParams(location.search);
   const $ = s => document.querySelector(s);
   const store = {
@@ -41,22 +56,42 @@
     mode: 0, view: 'loading', inGame: false, lastGo: 0, go: null, game: null, roster: null,
     // NPC の設定(リーダーが決める): nf = 個人戦のNPC数、nr/nb = 赤/青チームのNPC数、ar = 人間を全員赤チームに
     cfg: { nf: +(Q.get('nf') || 0), nr: +(Q.get('nr') || 0), nb: +(Q.get('nb') || 0), ar: Q.get('ar') === '1' ? 1 : 0 },
+    lo: loadLoadout(), tp: -1, // tp = 選んだチーム(0=赤 1=青 -1=おまかせ)
     auto: Q.get('auto') === '1', autostart: Q.get('autostart'), minp: +(Q.get('minp') || 2), fast: Q.get('fast') === '1', autoStarted: false
   };
 
+  function loadLoadout() {
+    let lo = null;
+    try { lo = JSON.parse(store.get('echodark-lo') || 'null'); } catch (e) { }
+    if (!lo || typeof lo !== 'object') lo = { w: 0, s1: 0, s2: 1 };
+    lo.w = Math.min(4, Math.max(0, lo.w | 0)); lo.s1 = Math.min(3, Math.max(0, lo.s1 | 0)); lo.s2 = Math.min(3, Math.max(0, lo.s2 | 0));
+    if (Q.has('w')) lo.w = Math.min(4, Math.max(0, +Q.get('w') | 0)); // テスト用
+    if (lo.s1 === lo.s2) lo.s2 = (lo.s1 + 1) % 4;
+    return lo;
+  }
+
+  // 人間のチーム分け(C# の AssignTeams と同じやり方): 選んだ人はそのチーム、おまかせは少ないほうへ
+  function humanTeams(tps, allRed) {
+    let red = 0, blue = 0;
+    for (const t of tps) if (allRed || t === 0) red++; else if (t === 1) blue++;
+    if (!allRed) for (const t of tps) if (t !== 0 && t !== 1) { if (red <= blue) red++; else blue++; }
+    return { red, blue };
+  }
+
   // 今の設定で、チームごとの人数(人間+NPC)
-  function teamCounts(humans) {
+  function teamCounts(humans, tps) {
     const c = S.cfg;
     if (MODES[S.mode].key === 'ffa') return { total: humans + c.nf };
     if (MODES[S.mode].key === 'oni') return { total: humans };
-    const red = (c.ar ? humans : Math.ceil(humans / 2)) + c.nr;
-    const blue = (c.ar ? 0 : Math.floor(humans / 2)) + c.nb;
+    const h = humanTeams(tps || new Array(humans).fill(-1), !!c.ar);
+    const red = h.red + c.nr, blue = h.blue + c.nb;
     return { total: red + blue, red, blue };
   }
+  function memberTps() { return members().map(p => p.isMe ? S.tp : (p.presence.tp == null ? -1 : p.presence.tp)); }
 
   // スタートできるか(できないなら理由)
   function startProblem(humans) {
-    const k = teamCounts(humans), key = MODES[S.mode].key;
+    const k = teamCounts(humans, memberTps()), key = MODES[S.mode].key;
     if (k.total > MAX_TOTAL) return 'NPCを入れすぎ(人間+NPCで' + MAX_TOTAL + '人まで)';
     if (key === 'oni' && humans < 2) return '鬼ごっこは2人以上(NPCなし)';
     if (key === 'ffa' && k.total < 2) return 'ひとりならNPCを入れてね';
@@ -225,7 +260,7 @@
   }
 
   function buildPresence() {
-    const pres = { v: 1, rm: S.code, n: S.name, jt: S.jt, st: S.inGame ? 'g' : 'l' };
+    const pres = { v: 1, rm: S.code, n: S.name, jt: S.jt, st: S.inGame ? 'g' : 'l', lo: S.lo, tp: S.tp };
     if (isLeader()) { pres.md = S.mode; pres.cfg = S.cfg; if (S.go) pres.go = S.go; }
     if (S.inGame && S.game) pres.g = S.game;
     return pres;
@@ -277,7 +312,11 @@
   }, 100);
 
   function leaderStart() {
-    const roster = members().map(p => ({ id: p.peer, n: p.isMe ? S.name : String(p.presence.n || '?').slice(0, 12) }));
+    const roster = members().map(p => {
+      const lo = p.isMe ? S.lo : (p.presence.lo || {});
+      const tp = p.isMe ? S.tp : (p.presence.tp == null ? -1 : p.presence.tp);
+      return { id: p.peer, n: p.isMe ? S.name : String(p.presence.n || '?').slice(0, 12), w: lo.w | 0, s1: lo.s1 | 0, s2: lo.s2 == null ? 1 : lo.s2 | 0, tp: tp | 0 };
+    });
     if (startProblem(roster.length)) return;
     // seed = マップの種(全員が同じランダムマップを作る)
     S.go = { t: Date.now(), mode: S.mode, roster: roster, fast: S.fast ? 1 : 0, seed: Math.floor(Math.random() * 1e6) + 1, cfg: Object.assign({}, S.cfg) };
@@ -323,15 +362,26 @@
     const url = new URL(location.href); url.search = '?room=' + S.code;
     if ($('#invite').value !== url.href) $('#invite').value = url.href;
 
-    $('#players').innerHTML = peers.map(p =>
-      '<div>' + (p.peer === lead ? '👑 ' : '') + esc(p.isMe ? S.name : p.presence.n) + (p.isMe ? '(あなた)' : '') +
-      (p.presence.st === 'g' && !p.isMe ? ' — 試合中' : '') + '</div>').join('') +
+    const isTeam = MODES[S.mode].key === 'team';
+    $('#players').innerHTML = peers.map(p => {
+      const lo = p.isMe ? S.lo : (p.presence.lo || {}), tp = p.isMe ? S.tp : p.presence.tp;
+      const team = !isTeam || S.cfg.ar ? '' : tp === 0 ? ' <span style="color:#ff8a80">[赤]</span>' : tp === 1 ? ' <span style="color:#82b7ff">[青]</span>' : ' [おまかせ]';
+      return '<div>' + (p.peer === lead ? '👑 ' : '') + esc(p.isMe ? S.name : p.presence.n) + (p.isMe ? '(あなた)' : '') + team +
+        ' <span style="color:var(--dim)">— ' + esc((WEAPONS[lo.w | 0] || WEAPONS[0]).n) + '</span>' +
+        (p.presence.st === 'g' && !p.isMe ? ' — 試合中' : '') + '</div>';
+    }).join('') +
       '<div style="color:var(--dim)">' + peers.length + ' / ' + MAXP + ' 人</div>';
 
     $('#modes').innerHTML = MODES.map((m, i) =>
       '<button class="btn' + (i === S.mode ? ' sel' : '') + '" data-mode="' + i + '"' + (amLeader ? '' : ' disabled') + '>' + m.n + '</button>').join('');
     $('#modeDesc').textContent = MODES[S.mode].d;
     renderNpc(amLeader, peers.length);
+    // チーム選択(チーム戦のときだけ、だれでも自分のぶんを選べる)
+    const tpHtml = isTeam && !S.cfg.ar
+      ? '<span style="align-self:center;font-size:14px">あなたのチーム</span>' +
+        [[0, '赤', 'red'], [1, '青', 'blue'], [-1, 'おまかせ', '']].map(([v, n, c]) => '<button class="btn small ' + c + (S.tp === v ? ' sel' : '') + '" data-tp="' + v + '">' + n + '</button>').join('')
+      : '';
+    if ($('#teampick').innerHTML !== tpHtml) $('#teampick').innerHTML = tpHtml;
 
     const leaderInGame = peers.some(p => p.peer === lead && !p.isMe && p.presence.st === 'g');
     const problem = startProblem(peers.length);
@@ -342,6 +392,33 @@
     else if (amLeader) msg = problem || 'そろったらスタート(招待URLで友達も呼べる)';
     else msg = 'リーダー(👑)がスタートするのを待っています';
     $('#lobbyStat').textContent = msg;
+  }
+
+  // アセンブル(武器1つ + スキル2つ)。メニューとロビーの両方に同じものを出す。ロビーでいつでも変えられる
+  function renderAsm() {
+    const lo = S.lo;
+    const html = '<h3>アセンブル(武器とスキル)</h3>' +
+      '<div class="grid">' + WEAPONS.map((w, i) =>
+        '<button class="btn' + (lo.w === i ? ' sel' : '') + '" data-w="' + i + '">' + esc(w.n) + '<small>' + esc(w.d) + '<br>' + esc(w.st) + '</small></button>').join('') + '</div>' +
+      '<div class="desc">スキルを2つ(Q / E で使う)</div>' +
+      '<div class="grid">' + SKILLS.map((k, i) => {
+        const slot = lo.s1 === i ? 'Q' : lo.s2 === i ? 'E' : '';
+        return '<button class="btn' + (slot ? ' sel' : '') + '" data-s="' + i + '">' + (slot ? '[' + slot + '] ' : '') + esc(k.n) + '<small>' + esc(k.d) + '(待ち' + k.cd + '秒)</small></button>';
+      }).join('') + '</div>';
+    document.querySelectorAll('.asm').forEach(el => { if (el.innerHTML !== html) el.innerHTML = html; });
+  }
+
+  function onAsmClick(e) {
+    const b = e.target.closest('[data-w],[data-s]');
+    if (!b) return;
+    if (b.dataset.w != null) S.lo.w = +b.dataset.w;
+    else {
+      const k = +b.dataset.s;
+      if (k !== S.lo.s1 && k !== S.lo.s2) { S.lo.s1 = S.lo.s2; S.lo.s2 = k; } // 古いほうを外して入れ替え
+    }
+    store.set('echodark-lo', JSON.stringify(S.lo));
+    renderAsm();
+    renderLobby();
   }
 
   // NPC の設定欄(リーダーだけ操作できる。鬼ごっこは NPC なし)
@@ -355,7 +432,7 @@
     let html = '';
     if (key === 'ffa') html = counter('nf', 'NPC');
     else if (key === 'team') {
-      const k = teamCounts(humans);
+      const k = teamCounts(humans, memberTps());
       html = counter('nr', '赤チームのNPC') + counter('nb', '青チームのNPC') +
         '<label class="npcrow"><input type="checkbox" data-ar' + (c.ar ? ' checked' : '') + dis + '> 人間は全員赤チーム(NPCチームと対戦)</label>' +
         '<div class="desc">赤 ' + k.red + '人 / 青 ' + k.blue + '人</div>';
@@ -375,6 +452,17 @@
     $('#sub').textContent = h.sub || '';
     $('#bottom').textContent = h.bottom || '';
     $('#cross').classList.toggle('hidden', !h.cross);
+    // HP・弾・スキル・キルログ
+    const hasHp = h.hp != null && h.hp >= 0;
+    $('#hpbox').classList.toggle('hidden', !hasHp);
+    if (hasHp) { $('#hpnum').textContent = 'HP ' + h.hp; $('#hpfill').style.width = h.hp + '%'; $('#hpfill').classList.toggle('low', h.hp <= 30); }
+    $('#ammo').textContent = h.ammo || '';
+    $('#skills').textContent = (h.skills || []).join('\n');
+    $('#feed').textContent = (h.feed || []).slice(-4).join('\n');
+    // 一瞬の演出(数字が増えたらアニメーションをやり直す)
+    const kick = (id, seq, key) => { if (seq != null && seq !== S[key]) { if (S[key] != null) { const el = $(id); el.classList.remove('go'); void el.offsetWidth; el.classList.add('go'); } S[key] = seq; } };
+    if (h.pop) $('#pop').textContent = h.pop;
+    kick('#pop', h.popSeq, '_pop'); kick('#hitmark', h.hitSeq, '_hit'); kick('#dmg', h.dmgSeq, '_dmg');
     const locked = document.pointerLockElement === $('#unity-canvas');
     $('#lockhint').classList.toggle('hidden', locked || S.auto);
     $('#exitGame').classList.toggle('hidden', locked);
@@ -385,7 +473,13 @@
   function bind() {
     $('#name').value = S.name;
     $('#name').addEventListener('input', e => { S.name = e.target.value.trim().slice(0, 12) || 'Player'; store.set('echodark-name', S.name); });
-    $('#solo').onclick = () => { show('solo'); sendUnity('Game', 'StartSolo'); $('#unity-canvas').focus(); };
+    $('#solo').onclick = () => { show('solo'); sendUnity('Net', 'StartSolo', JSON.stringify(S.lo)); $('#unity-canvas').focus(); };
+    document.querySelectorAll('.asm').forEach(el => el.addEventListener('click', onAsmClick));
+    $('#teampick').addEventListener('click', e => {
+      const b = e.target.closest('[data-tp]'); if (!b) return;
+      S.tp = +b.dataset.tp; renderLobby();
+    });
+    renderAsm();
     $('#create').onclick = () => joinRoom(Math.random().toString(36).slice(2, 7).toUpperCase());
     $('#join').onclick = () => joinRoom($('#joinCode').value);
     $('#joinCode').addEventListener('keydown', e => { if (e.key === 'Enter') joinRoom($('#joinCode').value); });
@@ -401,7 +495,7 @@
       if (b) {
         const f = b.dataset.npc, next = Math.max(0, (S.cfg[f] | 0) + (+b.dataset.d));
         const before = S.cfg[f]; S.cfg[f] = next;
-        if (teamCounts(members().length).total > MAX_TOTAL) S.cfg[f] = before; // 12人を超える分は増やさない
+        if (teamCounts(members().length, memberTps()).total > MAX_TOTAL) S.cfg[f] = before; // 12人を超える分は増やさない
         renderLobby();
       }
     });
