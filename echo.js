@@ -57,7 +57,7 @@
     mode: 0, view: 'loading', inGame: false, lastGo: 0, go: null, game: null, roster: null,
     // NPC の設定(リーダーが決める): nf = 個人戦のNPC数、nr/nb = 赤/青チームのNPC数、ar = 人間を全員赤チームに
     cfg: { nf: +(Q.get('nf') || 0), nr: +(Q.get('nr') || 0), nb: +(Q.get('nb') || 0), ar: Q.get('ar') === '1' ? 1 : 0, st: Q.has('st') ? +Q.get('st') : +(store.get('echodark-stage') || -1) },
-    lo: loadLoadout(), tp: -1, // tp = 選んだチーム(0=赤 1=青 -1=おまかせ)
+    lo: loadLoadout(), tp: -1, ghost: store.get('echodark-ghost') !== '0', // ghost = 反響の残像を出すか // tp = 選んだチーム(0=赤 1=青 -1=おまかせ)
     auto: Q.get('auto') === '1', autostart: Q.get('autostart'), minp: +(Q.get('minp') || 2), fast: Q.get('fast') === '1', autoStarted: false
   };
 
@@ -431,6 +431,15 @@
     store.set('echodark-lo', JSON.stringify(S.lo));
     renderAsm();
     renderStages(true);
+    // 反響の残像のオン・オフ(メニューとロビーの両方。Unity にも伝える)
+    const setGhost = on => {
+      S.ghost = on; store.set('echodark-ghost', on ? '1' : '0');
+      document.querySelectorAll('.ghostOpt').forEach(el => { el.checked = on; });
+      sendUnity('Net', 'SetGhosts', on ? '1' : '0');
+    };
+    document.querySelectorAll('.ghostOpt').forEach(el => el.addEventListener('change', e => setGhost(e.target.checked)));
+    setGhost(S.ghost);
+    S._setGhost = setGhost;
     const onStage = e => {
       const b = e.target.closest('[data-st]'); if (!b) return;
       if (S.room && !isLeader()) return;
@@ -473,6 +482,8 @@
     $('#sub').textContent = h.sub || '';
     $('#bottom').textContent = h.bottom || '';
     $('#cross').classList.toggle('hidden', !h.cross);
+    // ゲーム中に V キーで切り替えたら、設定にも反映して覚えておく
+    if (h.ghost != null && h.ghost !== S.ghost && S._setGhost) S._setGhost(h.ghost);
     // HP・弾・スキル・キルログ
     const hasHp = h.hp != null && h.hp >= 0;
     $('#hpbox').classList.toggle('hidden', !hasHp);
@@ -522,6 +533,15 @@
     });
     renderAsm();
     renderStages(true);
+    // 反響の残像のオン・オフ(メニューとロビーの両方。Unity にも伝える)
+    const setGhost = on => {
+      S.ghost = on; store.set('echodark-ghost', on ? '1' : '0');
+      document.querySelectorAll('.ghostOpt').forEach(el => { el.checked = on; });
+      sendUnity('Net', 'SetGhosts', on ? '1' : '0');
+    };
+    document.querySelectorAll('.ghostOpt').forEach(el => el.addEventListener('change', e => setGhost(e.target.checked)));
+    setGhost(S.ghost);
+    S._setGhost = setGhost;
     const onStage = e => {
       const b = e.target.closest('[data-st]'); if (!b) return;
       if (S.room && !isLeader()) return;

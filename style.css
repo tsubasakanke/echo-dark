@@ -117,3 +117,7 @@ input {
 #noisebar { width: 140px; height: 6px; border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }
 #noisefill { height: 100%; width: 0; background: linear-gradient(90deg, #4fd2ff, #ffd27a 55%, #ff5a4e); }
 #noiselabel { min-width: 3em; }
+
+/* 設定のチェックボックス */
+.opt { font-size: 13px; color: var(--dim); }
+.opt input { flex: 0 0 auto; width: 16px; height: 16px; }
