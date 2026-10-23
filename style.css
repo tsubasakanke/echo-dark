@@ -104,3 +104,16 @@ input {
 #dmg { position: absolute; inset: 0; opacity: 0; background: radial-gradient(ellipse at center, transparent 55%, rgba(255, 30, 20, 0.55) 100%); }
 #dmg.go { animation: dmg 0.5s ease-out; }
 @keyframes dmg { 0% { opacity: 1; } 100% { opacity: 0; } }
+
+/* ステージ選択 */
+.stagebox { display: flex; flex-direction: column; gap: 6px; }
+.stages .btn { flex: 1 1 70px; padding: 8px 6px; font-size: 13px; text-align: center; }
+
+/* 音の方向(照準のまわりの弧)と自分の音メーター */
+#snd { position: absolute; left: 50%; top: 50%; width: 0; height: 0; }
+#snd i { position: absolute; left: -16px; top: -3px; width: 32px; height: 6px; border-radius: 3px; transform-origin: 16px 3px; }
+#snd i.big { left: -26px; width: 52px; transform-origin: 26px 3px; height: 7px; }
+#noisebox { position: absolute; left: 50%; bottom: 64px; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--dim); }
+#noisebar { width: 140px; height: 6px; border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }
+#noisefill { height: 100%; width: 0; background: linear-gradient(90deg, #4fd2ff, #ffd27a 55%, #ff5a4e); }
+#noiselabel { min-width: 3em; }

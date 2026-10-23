@@ -35,9 +35,10 @@
     { n: 'スナイパー', d: '1発で倒せる。ズーム(右クリック)しないとブレる', st: '威力100 / 銃声 超大(全体にバレる)' },
     { n: 'サプレッサー拳銃', d: '銃声がとても小さい。隠密向き', st: '威力34 / 銃声 極小' }
   ];
+  const STAGES = ['高台', '迷路', '市街地', '工場', '平原']; // C# の MapBuilder.StageNames と同じ順番。-1 = ランダム
   const SKILLS = [
     { n: 'ハイジャンプ', d: '高台や塔に飛び乗れる', cd: 8 },
-    { n: 'スキャン', d: '35m以内の敵が2.5秒、壁越しに光る', cd: 18 },
+    { n: 'スキャン', d: '20m以内の敵が2.5秒、壁越しに光る', cd: 18 },
     { n: 'ダッシュ', d: '1.2秒、足音なしで速く動く', cd: 10 },
     { n: 'デコイ', d: '狙った場所でニセの銃声を鳴らす', cd: 14 }
   ];
@@ -55,7 +56,7 @@
     name: (Q.get('name') || store.get('echodark-name') || ('Player' + Math.floor(Math.random() * 900 + 100))).slice(0, 12),
     mode: 0, view: 'loading', inGame: false, lastGo: 0, go: null, game: null, roster: null,
     // NPC の設定(リーダーが決める): nf = 個人戦のNPC数、nr/nb = 赤/青チームのNPC数、ar = 人間を全員赤チームに
-    cfg: { nf: +(Q.get('nf') || 0), nr: +(Q.get('nr') || 0), nb: +(Q.get('nb') || 0), ar: Q.get('ar') === '1' ? 1 : 0 },
+    cfg: { nf: +(Q.get('nf') || 0), nr: +(Q.get('nr') || 0), nb: +(Q.get('nb') || 0), ar: Q.get('ar') === '1' ? 1 : 0, st: Q.has('st') ? +Q.get('st') : +(store.get('echodark-stage') || -1) },
     lo: loadLoadout(), tp: -1, // tp = 選んだチーム(0=赤 1=青 -1=おまかせ)
     auto: Q.get('auto') === '1', autostart: Q.get('autostart'), minp: +(Q.get('minp') || 2), fast: Q.get('fast') === '1', autoStarted: false
   };
@@ -319,7 +320,8 @@
     });
     if (startProblem(roster.length)) return;
     // seed = マップの種(全員が同じランダムマップを作る)
-    S.go = { t: Date.now(), mode: S.mode, roster: roster, fast: S.fast ? 1 : 0, seed: Math.floor(Math.random() * 1e6) + 1, cfg: Object.assign({}, S.cfg) };
+    const st = S.cfg.st >= 0 ? S.cfg.st : Math.floor(Math.random() * STAGES.length); // ランダムはここで1つに決めて全員に配る
+    S.go = { t: Date.now(), mode: S.mode, roster: roster, fast: S.fast ? 1 : 0, seed: Math.floor(Math.random() * 1e6) + 1, st: st, cfg: Object.assign({}, S.cfg) };
     startGame(S.go);
   }
 
@@ -328,7 +330,7 @@
     show('game');
     const c = go.cfg || {};
     sendUnity('Net', 'StartMatch', JSON.stringify({
-      me: S.me, mode: go.mode | 0, roster: go.roster, auto: S.auto ? 1 : 0, fast: go.fast | 0, seed: go.seed | 0,
+      me: S.me, mode: go.mode | 0, roster: go.roster, auto: S.auto ? 1 : 0, fast: go.fast | 0, seed: go.seed | 0, st: go.st | 0,
       nf: c.nf | 0, nr: c.nr | 0, nb: c.nb | 0, ar: c.ar | 0
     }));
   }
@@ -376,6 +378,7 @@
       '<button class="btn' + (i === S.mode ? ' sel' : '') + '" data-mode="' + i + '"' + (amLeader ? '' : ' disabled') + '>' + m.n + '</button>').join('');
     $('#modeDesc').textContent = MODES[S.mode].d;
     renderNpc(amLeader, peers.length);
+    renderStages(amLeader);
     // チーム選択(チーム戦のときだけ、だれでも自分のぶんを選べる)
     const tpHtml = isTeam && !S.cfg.ar
       ? '<span style="align-self:center;font-size:14px">あなたのチーム</span>' +
@@ -392,6 +395,15 @@
     else if (amLeader) msg = problem || 'そろったらスタート(招待URLで友達も呼べる)';
     else msg = 'リーダー(👑)がスタートするのを待っています';
     $('#lobbyStat').textContent = msg;
+  }
+
+  // ステージ選択(メニュー = ソロ用、ロビー = リーダーが決める)
+  function renderStages(amLeader) {
+    const btns = (sel, dis) => [-1, 0, 1, 2, 3, 4].map(i =>
+      '<button class="btn' + (sel === i ? ' sel' : '') + '" data-st="' + i + '"' + (dis ? ' disabled' : '') + '>' + (i < 0 ? 'ランダム' : STAGES[i]) + '</button>').join('');
+    const m = btns(S.cfg.st, false), l = btns(S.cfg.st, !amLeader);
+    if ($('#stageMenu').innerHTML !== m) $('#stageMenu').innerHTML = m;
+    if ($('#stageLobby').innerHTML !== l) $('#stageLobby').innerHTML = l;
   }
 
   // アセンブル(武器1つ + スキル2つ)。メニューとロビーの両方に同じものを出す。ロビーでいつでも変えられる
@@ -418,6 +430,15 @@
     }
     store.set('echodark-lo', JSON.stringify(S.lo));
     renderAsm();
+    renderStages(true);
+    const onStage = e => {
+      const b = e.target.closest('[data-st]'); if (!b) return;
+      if (S.room && !isLeader()) return;
+      S.cfg.st = +b.dataset.st; store.set('echodark-stage', String(S.cfg.st));
+      renderStages(!S.room || isLeader()); renderLobby();
+    };
+    $('#stageMenu').addEventListener('click', onStage);
+    $('#stageLobby').addEventListener('click', onStage);
     renderLobby();
   }
 
@@ -459,6 +480,23 @@
     $('#ammo').textContent = h.ammo || '';
     $('#skills').textContent = (h.skills || []).join('\n');
     $('#feed').textContent = (h.feed || []).slice(-4).join('\n');
+    // 音の方向: 照準のまわりに、聞こえた音の向きを色つきの弧で出す(上 = 前、右 = 右)
+    const SND_COLOR = { 0: '#6fd3ff', 1: '#6fd3ff', 3: '#ff5a4e', 4: '#ffa64f', 5: '#c58cff', 7: '#ffffff' };
+    const snd = h.snd || [], box = $('#snd');
+    let html = '';
+    for (let i = 0; i + 2 < snd.length; i += 3) {
+      const ang = snd[i], kind = snd[i + 1], a = snd[i + 2];
+      const col = SND_COLOR[kind] || '#cfe9ff';
+      html += '<i class="' + (kind === 3 ? 'big' : '') + '" style="background:' + col + ';opacity:' + a + ';box-shadow:0 0 8px ' + col +
+        ';transform:rotate(' + ang + 'deg) translateY(-' + (kind === 3 ? 92 : 78) + 'px)"></i>';
+    }
+    box.innerHTML = html;
+    // 自分の音の大きさ
+    const nz = Math.max(0, Math.min(1, h.noise || 0));
+    $('#noisebox').classList.toggle('hidden', !(h.hp != null && h.hp >= 0));
+    $('#noisefill').style.width = Math.round(nz * 100) + '%';
+    $('#noiselabel').textContent = nz < 0.05 ? '静か' : nz < 0.4 ? '小' : nz < 0.65 ? '中' : nz < 0.9 ? '大' : '超大';
+
     // 一瞬の演出(数字が増えたらアニメーションをやり直す)
     const kick = (id, seq, key) => { if (seq != null && seq !== S[key]) { if (S[key] != null) { const el = $(id); el.classList.remove('go'); void el.offsetWidth; el.classList.add('go'); } S[key] = seq; } };
     if (h.pop) $('#pop').textContent = h.pop;
@@ -473,13 +511,25 @@
   function bind() {
     $('#name').value = S.name;
     $('#name').addEventListener('input', e => { S.name = e.target.value.trim().slice(0, 12) || 'Player'; store.set('echodark-name', S.name); });
-    $('#solo').onclick = () => { show('solo'); sendUnity('Net', 'StartSolo', JSON.stringify(S.lo)); $('#unity-canvas').focus(); };
+    $('#solo').onclick = () => {
+      const st = S.cfg.st >= 0 ? S.cfg.st : Math.floor(Math.random() * STAGES.length);
+      show('solo'); sendUnity('Net', 'StartSolo', JSON.stringify(Object.assign({}, S.lo, { st }))); $('#unity-canvas').focus();
+    };
     document.querySelectorAll('.asm').forEach(el => el.addEventListener('click', onAsmClick));
     $('#teampick').addEventListener('click', e => {
       const b = e.target.closest('[data-tp]'); if (!b) return;
       S.tp = +b.dataset.tp; renderLobby();
     });
     renderAsm();
+    renderStages(true);
+    const onStage = e => {
+      const b = e.target.closest('[data-st]'); if (!b) return;
+      if (S.room && !isLeader()) return;
+      S.cfg.st = +b.dataset.st; store.set('echodark-stage', String(S.cfg.st));
+      renderStages(!S.room || isLeader()); renderLobby();
+    };
+    $('#stageMenu').addEventListener('click', onStage);
+    $('#stageLobby').addEventListener('click', onStage);
     $('#create').onclick = () => joinRoom(Math.random().toString(36).slice(2, 7).toUpperCase());
     $('#join').onclick = () => joinRoom($('#joinCode').value);
     $('#joinCode').addEventListener('keydown', e => { if (e.key === 'Enter') joinRoom($('#joinCode').value); });
